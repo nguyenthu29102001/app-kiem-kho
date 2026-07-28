@@ -38,6 +38,16 @@ const headers = (token?: string) => ({
   ...(token ? { Authorization: `Bearer ${token}` } : {}),
 });
 
+async function githubError(response: Response) {
+  const body = (await response.json().catch(() => null)) as { message?: string } | null;
+  const detail =
+    response.status === 401 ? "Token không hợp lệ hoặc đã hết hạn." :
+    response.status === 403 ? "Token chưa có quyền Contents: Read and write cho repository này." :
+    response.status === 404 ? "Không tìm thấy repository/file hoặc token chưa được cấp quyền truy cập repository." :
+    body?.message || "Yêu cầu bị GitHub từ chối.";
+  return new Error(`${detail} (HTTP ${response.status})`);
+}
+
 export async function readGithubFile<T>(
   config: GithubSyncConfig,
   token?: string,
@@ -47,7 +57,7 @@ export async function readGithubFile<T>(
     cache: "no-store",
   });
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`GitHub trả về lỗi ${response.status}`);
+  if (!response.ok) throw await githubError(response);
   const file = (await response.json()) as { content: string; sha: string };
   return { data: JSON.parse(decodeBase64(file.content)) as T, sha: file.sha };
 }
@@ -80,8 +90,7 @@ export async function writeGithubFile<T>(
       const latest = await readGithubFile<T>(config, token);
       return writeGithubFile(config, token, data, latest?.sha, false);
     }
-    const body = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(body?.message || `GitHub trả về lỗi ${response.status}`);
+    throw await githubError(response);
   }
   const result = (await response.json()) as { content: { sha: string } };
   return result.content.sha;

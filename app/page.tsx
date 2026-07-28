@@ -73,6 +73,8 @@ export default function Home() {
   const [githubTokenDraft, setGithubTokenDraft] = useState("");
   const [syncReady, setSyncReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"loading" | "saved" | "saving" | "error" | "local">("loading");
+  const [syncError, setSyncError] = useState("");
+  const [syncRevision, setSyncRevision] = useState(0);
   const remoteShaRef = useRef("");
   const [selectedProductId, setSelectedProductId] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -107,11 +109,14 @@ export default function Home() {
         remoteShaRef.current = remote?.sha ?? "";
         setSyncStatus(remote ? "saved" : token ? "local" : "local");
       })
-      .catch(() => {
+      .catch((error) => {
         if (cancelled) return;
         setProducts(localProducts);
         setSession(localSession);
         setSyncStatus("error");
+        setSyncError(error instanceof Error
+          ? error.message
+          : "Không tải được file đồng bộ từ GitHub. Hãy kiểm tra kết nối và tải lại trang.");
       })
       .finally(() => {
         if (cancelled) return;
@@ -137,6 +142,7 @@ export default function Home() {
   useEffect(() => {
     if (!hydrated || !syncReady || !githubToken) return;
     setSyncStatus("saving");
+    setSyncError("");
     const timer = window.setTimeout(async () => {
       const payload: InventoryFile = {
         version: 1,
@@ -148,12 +154,13 @@ export default function Home() {
         const sha = await writeGithubFile(DEFAULT_GITHUB_SYNC, githubToken, payload, remoteShaRef.current || undefined);
         remoteShaRef.current = sha;
         setSyncStatus("saved");
-      } catch {
+      } catch (error) {
         setSyncStatus("error");
+        setSyncError(error instanceof Error ? error.message : "Không thể đồng bộ với GitHub.");
       }
     }, 1200);
     return () => window.clearTimeout(timer);
-  }, [products, session, githubToken, hydrated, syncReady]);
+  }, [products, session, githubToken, hydrated, syncReady, syncRevision]);
 
   const productById = useMemo(
     () => new Map(products.map((product) => [product.id, product])),
@@ -246,12 +253,15 @@ export default function Home() {
   };
 
   const saveGithubToken = (token: string) => {
-    const clean = token.trim();
+    const clean = token.trim().replace(/^Bearer\s+/i, "");
     setGithubToken(clean);
+    setGithubTokenDraft(clean);
     remoteShaRef.current = "";
     if (clean) localStorage.setItem(GITHUB_TOKEN_KEY, clean);
     else localStorage.removeItem(GITHUB_TOKEN_KEY);
     setSyncStatus(clean ? "saving" : "local");
+    setSyncError("");
+    setSyncRevision((revision) => revision + 1);
   };
 
   const exportExcel = async () => {
@@ -461,6 +471,7 @@ export default function Home() {
                   syncStatus === "error" ? "Đồng bộ lỗi" : "Chỉ lưu trên thiết bị"
                 }</h3>
                 <p>Dữ liệu được lưu tại <code>{DEFAULT_GITHUB_SYNC.path}</code>. Thiết bị mới tự tải file; token chỉ cần khi ghi dữ liệu.</p>
+                {syncError && <p className="sync-error" role="alert">{syncError}</p>}
               </div>
               <label className="field">
                 <span>GitHub token (Contents: Read and write)</span>
@@ -474,6 +485,10 @@ export default function Home() {
               </label>
               <div className="mini-actions">
                 <button className="secondary" onClick={() => saveGithubToken(githubTokenDraft)}>Lưu token</button>
+                {githubToken && syncStatus === "error" &&
+                  <button className="secondary" onClick={() => setSyncRevision((revision) => revision + 1)}>
+                    Thử lại
+                  </button>}
                 {githubToken && <button className="text-button danger-text" onClick={() => {
                   setGithubTokenDraft("");
                   saveGithubToken("");
