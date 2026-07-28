@@ -1,12 +1,18 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-28T09:59:02.278Z",
+  "updatedAt": "2026-07-28T09:59:38.119Z",
   "products": [
     {
       "id": "1785232617843-wx9wvy",
       "barcode": "8935382400174",
       "name": "Giấy top gia",
       "unit": "Bịch"
+    },
+    {
+      "id": "1785232776916-p6uit7",
+      "barcode": "8938549380418",
+      "name": "Cồn",
+      "unit": "Chai"
     }
   ],
   "session": {
