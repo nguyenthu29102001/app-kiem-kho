@@ -68,7 +68,13 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [confirmNewSession, setConfirmNewSession] = useState(false);
   const [confirmCompleteSession, setConfirmCompleteSession] = useState(false);
+  const [confirmClearToken, setConfirmClearToken] = useState(false);
+  const [pendingDeleteProduct, setPendingDeleteProduct] = useState<Product | null>(null);
+  const [pendingImportProducts, setPendingImportProducts] = useState<Product[] | null>(null);
+  const [missingBarcode, setMissingBarcode] = useState("");
   const [exportedSessionId, setExportedSessionId] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
   const [githubToken, setGithubToken] = useState("");
   const [githubTokenDraft, setGithubTokenDraft] = useState("");
   const [syncReady, setSyncReady] = useState(false);
@@ -209,7 +215,7 @@ export default function Home() {
 
     const product = products.find((p) => p.barcode === barcode);
     if (!product) {
-      flash("Không tìm thấy sản phẩm. Hãy thêm vào danh mục trước.");
+      setMissingBarcode(barcode);
       return;
     }
     setSelectedProductId(product.id);
@@ -269,34 +275,49 @@ export default function Home() {
       flash("Chưa có dữ liệu để xuất");
       return false;
     }
-    const XLSX = await import("xlsx");
-    const rows = session.lines.map((line, index) => {
-      const product = productById.get(line.productId);
-      return {
-        STT: index + 1,
-        Barcode: product?.barcode ?? "",
-        "Tên sản phẩm": product?.name ?? "Không xác định",
-        "Đơn vị": product?.unit ?? "",
-        "Số lượng": line.quantity,
-        "Cập nhật lúc": formatTime(line.updatedAt),
-      };
-    });
-    const workbook = XLSX.utils.book_new();
-    const sheet = XLSX.utils.json_to_sheet(rows);
-    sheet["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 22 }];
-    XLSX.utils.book_append_sheet(workbook, sheet, "Ton kho");
-    XLSX.writeFile(workbook, `kiem-kho-${new Date().toISOString().slice(0, 10)}.xlsx`);
-    setExportedSessionId(session.id);
-    localStorage.setItem(EXPORTED_SESSION_KEY, session.id);
-    return true;
+    setIsExporting(true);
+    try {
+      const XLSX = await import("xlsx");
+      const rows = session.lines.map((line, index) => {
+        const product = productById.get(line.productId);
+        return {
+          STT: index + 1,
+          Barcode: product?.barcode ?? "",
+          "Tên sản phẩm": product?.name ?? "Không xác định",
+          "Đơn vị": product?.unit ?? "",
+          "Số lượng": line.quantity,
+          "Cập nhật lúc": formatTime(line.updatedAt),
+        };
+      });
+      const workbook = XLSX.utils.book_new();
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      sheet["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 22 }];
+      XLSX.utils.book_append_sheet(workbook, sheet, "Ton kho");
+      XLSX.writeFile(workbook, `kiem-kho-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      setExportedSessionId(session.id);
+      localStorage.setItem(EXPORTED_SESSION_KEY, session.id);
+      flash("Đã xuất file Excel");
+      return true;
+    } catch {
+      flash("Không thể xuất Excel. Vui lòng thử lại.");
+      return false;
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const confirmAndCompleteSession = async () => {
     if (!session) return;
+    setIsCompleting(true);
     if (shouldExportBeforeCompleting(session.id, session.lines.length, exportedSessionId)) {
-      await exportExcel();
+      const exported = await exportExcel();
+      if (!exported) {
+        setIsCompleting(false);
+        return;
+      }
     }
     completeSession();
+    setIsCompleting(false);
   };
 
   const exportProducts = () => {
@@ -309,17 +330,23 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
-  const importProducts = async (file: File) => {
+  const prepareImportProducts = async (file: File) => {
     try {
       const parsed = JSON.parse(await file.text()) as Product[];
       if (!Array.isArray(parsed) || parsed.some((p) => !p.id || !p.name)) throw new Error();
       const seen = new Set<string>();
       const clean = parsed.filter((p) => !p.barcode || (!seen.has(p.barcode) && seen.add(p.barcode)));
-      setProducts(clean);
-      flash(`Đã nhập ${clean.length} sản phẩm`);
+      setPendingImportProducts(clean);
     } catch {
       flash("File danh mục không hợp lệ");
     }
+  };
+
+  const openAddMissingProduct = () => {
+    setProductForm({ barcode: missingBarcode, name: "", unit: "Cái" });
+    setMissingBarcode("");
+    setTab("products");
+    window.setTimeout(() => document.querySelector<HTMLInputElement>("#product-name")?.focus(), 50);
   };
 
   if (!hydrated) return <main className="loading">Đang mở sổ kiểm kho…</main>;
@@ -406,7 +433,9 @@ export default function Home() {
                 <p className="label">KẾT QUẢ</p>
                 <h2>Danh sách tồn kho</h2>
               </div>
-              <button className="secondary" onClick={exportExcel}>Xuất Excel</button>
+              <button className={isExporting ? "secondary button-busy" : "secondary"} disabled={isExporting} aria-busy={isExporting} onClick={exportExcel}>
+                {isExporting ? "Đang xuất…" : "Xuất Excel"}
+              </button>
             </div>
             <div className="summary">
               <div><strong>{session?.lines.length ?? 0}</strong><span>Mặt hàng</span></div>
@@ -458,7 +487,7 @@ export default function Home() {
             </div>
             <div className="form-stack">
               <label className="field"><span>Barcode (không bắt buộc)</span><input value={productForm.barcode} onChange={(e) => setProductForm({ ...productForm, barcode: e.target.value })} placeholder="Quét hoặc nhập tay" /></label>
-              <label className="field"><span>Tên sản phẩm</span><input value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Ví dụ: Sữa đặc Ngôi Sao" /></label>
+              <label className="field"><span>Tên sản phẩm</span><input id="product-name" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Ví dụ: Sữa đặc Ngôi Sao" /></label>
               <label className="field"><span>Đơn vị tính</span><input value={productForm.unit} onChange={(e) => setProductForm({ ...productForm, unit: e.target.value })} placeholder="Cái, hộp, kg…" /></label>
               <button className="primary large" onClick={saveProduct}>Thêm vào danh mục</button>
             </div>
@@ -489,10 +518,7 @@ export default function Home() {
                   <button className="secondary" onClick={() => setSyncRevision((revision) => revision + 1)}>
                     Thử lại
                   </button>}
-                {githubToken && <button className="text-button danger-text" onClick={() => {
-                  setGithubTokenDraft("");
-                  saveGithubToken("");
-                }}>Xoá token</button>}
+                {githubToken && <button className="text-button danger-text" onClick={() => setConfirmClearToken(true)}>Xoá token</button>}
               </div>
             </div>
           </section>
@@ -500,7 +526,11 @@ export default function Home() {
             <div className="section-heading">
               <div><p className="label">{products.length} SẢN PHẨM</p><h2>Danh mục hiện có</h2></div>
               <div className="mini-actions">
-                <label className="secondary file-button">Nhập JSON<input type="file" accept=".json,application/json" onChange={(e) => e.target.files?.[0] && importProducts(e.target.files[0])} /></label>
+                <label className="secondary file-button">Nhập JSON<input type="file" accept=".json,application/json" onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) prepareImportProducts(file);
+                }} /></label>
                 <button className="secondary" onClick={exportProducts}>Xuất JSON</button>
               </div>
             </div>
@@ -508,7 +538,7 @@ export default function Home() {
               {products.map((product) => (
                 <article key={product.id}>
                   <div><h3>{product.name}</h3><p>{product.barcode || "Không barcode"} · {product.unit}</p></div>
-                  <button aria-label={`Xoá ${product.name}`} onClick={() => setProducts((items) => items.filter((item) => item.id !== product.id))}>×</button>
+                  <button className="delete-button" aria-label={`Xoá ${product.name}`} onClick={() => setPendingDeleteProduct(product)}>×</button>
                 </article>
               ))}
             </div>
@@ -547,7 +577,83 @@ export default function Home() {
             </p>
             <div className="modal-actions">
               <button className="secondary" onClick={() => setConfirmCompleteSession(false)}>Huỷ</button>
-              <button className="primary" onClick={confirmAndCompleteSession}>Xác nhận hoàn tất</button>
+              <button className={isCompleting ? "primary button-busy" : "primary"} disabled={isCompleting} aria-busy={isCompleting} onClick={confirmAndCompleteSession}>
+                {isCompleting ? "Đang hoàn tất…" : "Xác nhận hoàn tất"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDeleteProduct && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-product-title">
+            <div className="warning-icon">!</div>
+            <h2 id="delete-product-title">Xoá sản phẩm?</h2>
+            <p>
+              Sản phẩm <strong>{pendingDeleteProduct.name}</strong> sẽ bị xoá khỏi danh mục
+              {session?.lines.some((line) => line.productId === pendingDeleteProduct.id)
+                ? " và đang có trong kết quả phiên hiện tại."
+                : "."}
+            </p>
+            <div className="modal-actions">
+              <button className="secondary" onClick={() => setPendingDeleteProduct(null)}>Huỷ</button>
+              <button className="danger" onClick={() => {
+                setProducts((items) => items.filter((item) => item.id !== pendingDeleteProduct.id));
+                setPendingDeleteProduct(null);
+                flash("Đã xoá sản phẩm");
+              }}>Xác nhận xoá</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingImportProducts && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="import-products-title">
+            <div className="warning-icon">!</div>
+            <h2 id="import-products-title">Thay toàn bộ danh mục?</h2>
+            <p>Danh mục hiện tại gồm {products.length} sản phẩm sẽ được thay bằng {pendingImportProducts.length} sản phẩm từ file JSON.</p>
+            <div className="modal-actions">
+              <button className="secondary" onClick={() => setPendingImportProducts(null)}>Huỷ</button>
+              <button className="danger" onClick={() => {
+                setProducts(pendingImportProducts);
+                flash(`Đã nhập ${pendingImportProducts.length} sản phẩm`);
+                setPendingImportProducts(null);
+              }}>Xác nhận thay thế</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmClearToken && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="clear-token-title">
+            <div className="warning-icon">!</div>
+            <h2 id="clear-token-title">Xoá GitHub token?</h2>
+            <p>Thiết bị này sẽ ngừng ghi dữ liệu lên GitHub cho đến khi bạn nhập token mới. Dữ liệu local vẫn được giữ nguyên.</p>
+            <div className="modal-actions">
+              <button className="secondary" onClick={() => setConfirmClearToken(false)}>Huỷ</button>
+              <button className="danger" onClick={() => {
+                setGithubTokenDraft("");
+                saveGithubToken("");
+                setConfirmClearToken(false);
+                flash("Đã xoá GitHub token");
+              }}>Xác nhận xoá</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {missingBarcode && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="missing-product-title">
+            <div className="warning-icon">!</div>
+            <h2 id="missing-product-title">Sản phẩm chưa có trong danh mục</h2>
+            <p>Barcode <strong>{missingBarcode}</strong> chưa thể kiểm đếm. Hãy nhập thông tin sản phẩm trước rồi quét lại.</p>
+            <div className="modal-actions">
+              <button className="secondary" onClick={() => setMissingBarcode("")}>Để sau</button>
+              <button className="primary" onClick={openAddMissingProduct}>Nhập sản phẩm</button>
             </div>
           </div>
         </div>
