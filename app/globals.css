@@ -97,6 +97,7 @@ p { color: var(--muted); }
 .modal-backdrop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px; background: rgba(12,20,15,.58); backdrop-filter: blur(5px); }
 .modal { width: min(420px, 100%); padding: 28px; border-radius: 21px; background: white; text-align: center; box-shadow: 0 24px 70px rgba(0,0,0,.28); }
 .warning-icon { display: grid; place-items: center; width: 48px; height: 48px; margin: 0 auto 15px; border-radius: 15px; color: var(--danger); background: #fcebea; font-size: 23px; font-weight: 900; }
+.modal-icon { margin: 0 auto 15px; }
 .modal p { margin: 12px 0 22px; font-size: 14px; line-height: 1.6; }
 .modal-actions { display: grid; grid-template-columns: 1fr 1.3fr; gap: 9px; }
 .toast { position: fixed; z-index: 50; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 12px 17px; color: white; background: #17231b; border-radius: 11px; box-shadow: 0 10px 34px rgba(0,0,0,.24); font-size: 13px; font-weight: 700; white-space: nowrap; }
@@ -120,6 +121,7 @@ p { color: var(--muted); }
   .action-row .or { width: 100%; padding: 0; text-align: center; }
   .topbar { align-items: flex-start; }
   .session-pill { margin-top: 3px; }
+  input, select { font-size: 16px; }
 }
 
 @media (max-width: 480px) {

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   parseInventoryQuantity,
   setInventoryQuantity,
+  shouldExportBeforeCompleting,
 } from "../app/inventory.ts";
 
 test("accepts decimal quantities with dot or comma", () => {
@@ -36,4 +37,10 @@ test("adds a line when the product has not been counted", () => {
     quantity: 0.5,
     updatedAt: "2026-07-28T01:00:00.000Z",
   }]);
+});
+
+test("exports automatically only when a non-empty session has not been exported", () => {
+  assert.equal(shouldExportBeforeCompleting("session-1", 2, ""), true);
+  assert.equal(shouldExportBeforeCompleting("session-1", 2, "session-1"), false);
+  assert.equal(shouldExportBeforeCompleting("session-1", 0, ""), false);
 });

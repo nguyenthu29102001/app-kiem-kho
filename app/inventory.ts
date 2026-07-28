@@ -19,3 +19,9 @@ export function setInventoryQuantity(
     line.productId === productId ? { ...line, quantity, updatedAt } : line,
   );
 }
+
+export const shouldExportBeforeCompleting = (
+  sessionId: string,
+  lineCount: number,
+  exportedSessionId: string,
+) => lineCount > 0 && exportedSessionId !== sessionId;

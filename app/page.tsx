@@ -8,7 +8,11 @@ import {
   readGithubFile,
   writeGithubFile,
 } from "./github-sync";
-import { parseInventoryQuantity, setInventoryQuantity } from "./inventory";
+import {
+  parseInventoryQuantity,
+  setInventoryQuantity,
+  shouldExportBeforeCompleting,
+} from "./inventory";
 
 type Product = {
   id: string;
@@ -42,6 +46,7 @@ type InventoryFile = {
 const PRODUCTS_KEY = "kiemkho.products.v1";
 const SESSION_KEY = "kiemkho.session.v1";
 const GITHUB_TOKEN_KEY = "kiemkho.github-token.v1";
+const EXPORTED_SESSION_KEY = "kiemkho.exported-session.v1";
 const DEFAULT_PRODUCTS: Product[] = [
   { id: "sp-ca-phe-den", barcode: "8938505974011", name: "Cà phê đen", unit: "Gói" },
   { id: "sp-sua-tuoi", barcode: "8934673601001", name: "Sữa tươi không đường", unit: "Hộp" },
@@ -62,6 +67,8 @@ export default function Home() {
   const [scannerFor, setScannerFor] = useState<"stock" | "product" | null>(null);
   const [notice, setNotice] = useState("");
   const [confirmNewSession, setConfirmNewSession] = useState(false);
+  const [confirmCompleteSession, setConfirmCompleteSession] = useState(false);
+  const [exportedSessionId, setExportedSessionId] = useState("");
   const [githubToken, setGithubToken] = useState("");
   const [githubTokenDraft, setGithubTokenDraft] = useState("");
   const [syncReady, setSyncReady] = useState(false);
@@ -87,6 +94,7 @@ export default function Home() {
     const token = localStorage.getItem(GITHUB_TOKEN_KEY) ?? "";
     setGithubToken(token);
     setGithubTokenDraft(token);
+    setExportedSessionId(localStorage.getItem(EXPORTED_SESSION_KEY) ?? "");
 
     readGithubFile<InventoryFile>(DEFAULT_GITHUB_SYNC, token)
       .then((remote) => {
@@ -165,6 +173,8 @@ export default function Home() {
     setSelectedProductId("");
     setQuantity("");
     setConfirmNewSession(false);
+    setExportedSessionId("");
+    localStorage.removeItem(EXPORTED_SESSION_KEY);
     flash("Đã tạo phiên kiểm kho mới");
   };
 
@@ -174,6 +184,7 @@ export default function Home() {
     setSession({ ...session, status: "completed", completedAt: now, updatedAt: now });
     setSelectedProductId("");
     setQuantity("");
+    setConfirmCompleteSession(false);
     flash("Đã hoàn tất phiên kiểm kho");
   };
 
@@ -244,7 +255,10 @@ export default function Home() {
   };
 
   const exportExcel = async () => {
-    if (!session || session.lines.length === 0) return flash("Chưa có dữ liệu để xuất");
+    if (!session || session.lines.length === 0) {
+      flash("Chưa có dữ liệu để xuất");
+      return false;
+    }
     const XLSX = await import("xlsx");
     const rows = session.lines.map((line, index) => {
       const product = productById.get(line.productId);
@@ -262,6 +276,17 @@ export default function Home() {
     sheet["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 22 }];
     XLSX.utils.book_append_sheet(workbook, sheet, "Ton kho");
     XLSX.writeFile(workbook, `kiem-kho-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    setExportedSessionId(session.id);
+    localStorage.setItem(EXPORTED_SESSION_KEY, session.id);
+    return true;
+  };
+
+  const confirmAndCompleteSession = async () => {
+    if (!session) return;
+    if (shouldExportBeforeCompleting(session.id, session.lines.length, exportedSessionId)) {
+      await exportExcel();
+    }
+    completeSession();
   };
 
   const exportProducts = () => {
@@ -356,7 +381,7 @@ export default function Home() {
                   <button className="primary" onClick={addStock}>Ghi nhận</button>
                 </div>
                 <div className="session-actions">
-                  <button className="secondary" onClick={completeSession}>Hoàn tất phiên</button>
+                  <button className="secondary" onClick={() => setConfirmCompleteSession(true)}>Hoàn tất phiên</button>
                   <button className="text-button danger-text" onClick={() => setConfirmNewSession(true)}>
                     Tạo phiên mới
                   </button>
@@ -487,6 +512,27 @@ export default function Home() {
             <div className="modal-actions">
               <button className="secondary" onClick={() => setConfirmNewSession(false)}>Huỷ</button>
               <button className="danger" onClick={startNewSession}>Tạo phiên mới</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmCompleteSession && session && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="complete-title">
+            <div className="empty-icon modal-icon">✓</div>
+            <h2 id="complete-title">Hoàn tất phiên kiểm kho?</h2>
+            <p>
+              {!shouldExportBeforeCompleting(session.id, session.lines.length, exportedSessionId)
+                && session.lines.length > 0
+                ? "Phiên này đã được xuất Excel thủ công. Sau khi hoàn tất, số lượng sẽ chỉ được xem và không thể chỉnh sửa."
+                : session.lines.length > 0
+                  ? "Hệ thống sẽ tự động tải file Excel trước khi khoá phiên kiểm kho."
+                  : "Phiên chưa có sản phẩm nên sẽ không tạo file Excel."}
+            </p>
+            <div className="modal-actions">
+              <button className="secondary" onClick={() => setConfirmCompleteSession(false)}>Huỷ</button>
+              <button className="primary" onClick={confirmAndCompleteSession}>Xác nhận hoàn tất</button>
             </div>
           </div>
         </div>
