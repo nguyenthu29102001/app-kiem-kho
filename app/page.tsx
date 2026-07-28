@@ -54,6 +54,7 @@ const GITHUB_TOKEN_KEY = "kiemkho.github-token.v1";
 const EXPORTED_SESSION_KEY = "kiemkho.exported-session.v1";
 const GOOGLE_SHEET_URL_KEY = "kiemkho.google-sheet-url.v1";
 const GOOGLE_SCRIPT_URL_KEY = "kiemkho.google-script-url.v1";
+const GOOGLE_SHARED_SECRET_KEY = "kiemkho.google-shared-secret.v1";
 const DEFAULT_PRODUCTS: Product[] = [
   { id: "sp-ca-phe-den", barcode: "8938505974011", name: "Cà phê đen", unit: "Gói" },
   { id: "sp-sua-tuoi", barcode: "8934673601001", name: "Sữa tươi không đường", unit: "Hộp" },
@@ -88,6 +89,8 @@ export default function Home() {
   const [googleScriptUrl, setGoogleScriptUrl] = useState("");
   const [googleSheetDraft, setGoogleSheetDraft] = useState("");
   const [googleScriptDraft, setGoogleScriptDraft] = useState("");
+  const [googleSharedSecret, setGoogleSharedSecret] = useState("");
+  const [googleSecretDraft, setGoogleSecretDraft] = useState("");
   const [googleSyncStatus, setGoogleSyncStatus] = useState<"local" | "ready" | "sending" | "sent" | "error">("local");
   const [googleSyncError, setGoogleSyncError] = useState("");
   const [githubToken, setGithubToken] = useState("");
@@ -120,11 +123,14 @@ export default function Home() {
     setExportedSessionId(localStorage.getItem(EXPORTED_SESSION_KEY) ?? "");
     const savedGoogleSheetUrl = localStorage.getItem(GOOGLE_SHEET_URL_KEY) ?? "";
     const savedGoogleScriptUrl = localStorage.getItem(GOOGLE_SCRIPT_URL_KEY) ?? "";
+    const savedGoogleSharedSecret = localStorage.getItem(GOOGLE_SHARED_SECRET_KEY) ?? "";
     setGoogleSheetUrl(savedGoogleSheetUrl);
     setGoogleScriptUrl(savedGoogleScriptUrl);
     setGoogleSheetDraft(savedGoogleSheetUrl);
     setGoogleScriptDraft(savedGoogleScriptUrl);
-    setGoogleSyncStatus(savedGoogleSheetUrl && savedGoogleScriptUrl ? "ready" : "local");
+    setGoogleSharedSecret(savedGoogleSharedSecret);
+    setGoogleSecretDraft(savedGoogleSharedSecret);
+    setGoogleSyncStatus(savedGoogleSheetUrl && savedGoogleScriptUrl && savedGoogleSharedSecret ? "ready" : "local");
 
     readGithubFile<InventoryFile>(DEFAULT_GITHUB_SYNC, token)
       .then((remote) => {
@@ -322,13 +328,14 @@ export default function Home() {
       XLSX.writeFile(workbook, `kiem-kho-${new Date().toISOString().slice(0, 10)}.xlsx`);
       setExportedSessionId(session.id);
       localStorage.setItem(EXPORTED_SESSION_KEY, session.id);
-      if (googleSheetUrl && googleScriptUrl) {
+      if (googleSheetUrl && googleScriptUrl && googleSharedSecret) {
         setGoogleSyncStatus("sending");
         setGoogleSyncError("");
         try {
           await sendSessionToGoogleSheet({
             sheetUrl: googleSheetUrl,
             scriptUrl: googleScriptUrl,
+            sharedSecret: googleSharedSecret,
             session,
             products,
           });
@@ -397,14 +404,19 @@ export default function Home() {
   const saveGoogleSheetConfig = () => {
     const cleanSheetUrl = googleSheetDraft.trim();
     const cleanScriptUrl = googleScriptDraft.trim();
+    const cleanSharedSecret = googleSecretDraft.trim();
     if (!extractSpreadsheetId(cleanSheetUrl)) return flash("Link Google Sheet không hợp lệ");
     if (!isGoogleAppsScriptUrl(cleanScriptUrl)) return flash("Link Apps Script Web App không hợp lệ");
+    if (cleanSharedSecret.length < 24) return flash("Shared secret phải có ít nhất 24 ký tự");
     localStorage.setItem(GOOGLE_SHEET_URL_KEY, cleanSheetUrl);
     localStorage.setItem(GOOGLE_SCRIPT_URL_KEY, cleanScriptUrl);
+    localStorage.setItem(GOOGLE_SHARED_SECRET_KEY, cleanSharedSecret);
     setGoogleSheetUrl(cleanSheetUrl);
     setGoogleScriptUrl(cleanScriptUrl);
     setGoogleSheetDraft(cleanSheetUrl);
     setGoogleScriptDraft(cleanScriptUrl);
+    setGoogleSharedSecret(cleanSharedSecret);
+    setGoogleSecretDraft(cleanSharedSecret);
     setGoogleSyncStatus("ready");
     setGoogleSyncError("");
     flash("Đã lưu cấu hình Google Sheet trên thiết bị");
@@ -413,10 +425,13 @@ export default function Home() {
   const clearGoogleSheetConfig = () => {
     localStorage.removeItem(GOOGLE_SHEET_URL_KEY);
     localStorage.removeItem(GOOGLE_SCRIPT_URL_KEY);
+    localStorage.removeItem(GOOGLE_SHARED_SECRET_KEY);
     setGoogleSheetUrl("");
     setGoogleScriptUrl("");
     setGoogleSheetDraft("");
     setGoogleScriptDraft("");
+    setGoogleSharedSecret("");
+    setGoogleSecretDraft("");
     setGoogleSyncStatus("local");
     setGoogleSyncError("");
     setConfirmClearGoogleConfig(false);
@@ -648,9 +663,22 @@ export default function Home() {
                   {googleScriptDraft && <button type="button" aria-label="Xoá link Apps Script" onClick={() => setGoogleScriptDraft("")}>×</button>}
                 </span>
               </label>
+              <label className="field">
+                <span>Shared secret</span>
+                <span className="input-with-clear">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={googleSecretDraft}
+                    onChange={(e) => setGoogleSecretDraft(e.target.value)}
+                    placeholder="Ít nhất 24 ký tự ngẫu nhiên"
+                  />
+                  {googleSecretDraft && <button type="button" aria-label="Xoá shared secret" onClick={() => setGoogleSecretDraft("")}>×</button>}
+                </span>
+              </label>
               <div className="mini-actions">
                 <button className="secondary" onClick={saveGoogleSheetConfig}>Lưu cấu hình</button>
-                {googleSheetUrl && googleScriptUrl &&
+                {googleSheetUrl && googleScriptUrl && googleSharedSecret &&
                   <button className="text-button danger-text" onClick={() => setConfirmClearGoogleConfig(true)}>Xoá cấu hình</button>}
               </div>
             </div>

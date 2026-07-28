@@ -37,13 +37,22 @@ Thiết lập Apps Script:
 
 1. Mở [Google Apps Script](https://script.google.com/) và tạo project mới.
 2. Sao chép nội dung `google-apps-script/Code.gs` vào file `Code.gs`.
-3. Chọn **Deploy → New deployment → Web app**.
-4. Chọn **Execute as: Me** và **Who has access: Anyone** để trình duyệt có thể
+3. Mở **Project Settings → Script Properties** và thêm:
+   - `INVENTORY_SPREADSHEET_ID`: phần ID nằm giữa `/d/` và `/edit` trong link Sheet.
+   - `INVENTORY_SHARED_SECRET`: chuỗi ngẫu nhiên tối thiểu 24 ký tự, nên tạo bằng
+     password manager.
+4. Chọn **Deploy → New deployment → Web app**.
+5. Chọn **Execute as: Me** và **Who has access: Anyone** để trình duyệt có thể
    gửi dữ liệu mà không cần đăng nhập Google trong ứng dụng. Chỉ chia sẻ URL
-   Web App với các thiết bị kiểm kho.
-5. Deploy, cấp quyền truy cập Google Sheet, rồi sao chép URL kết thúc bằng `/exec`.
-6. Trong tab **Sản phẩm** của ứng dụng, nhập link file Google Sheet và URL Web App,
-   sau đó bấm **Lưu cấu hình**.
+   Web App và shared secret với các thiết bị kiểm kho.
+6. Deploy, cấp quyền truy cập Google Sheet, rồi sao chép URL kết thúc bằng `/exec`.
+7. Trong tab **Sản phẩm** của ứng dụng, nhập link file Google Sheet, URL Web App
+   và đúng shared secret trong Script Properties, sau đó bấm **Lưu cấu hình**.
+
+Apps Script chỉ mở Spreadsheet ID đã cố định trong Script Properties, xác thực
+shared secret, giới hạn tối đa 10.000 dòng, khoá ghi đồng thời và escape dữ liệu
+có thể bị hiểu là công thức. Khi cập nhật `Code.gs`, phải tạo deployment version
+mới trong **Deploy → Manage deployments**.
 
 Mỗi phiên tạo một tab có tên `KIỂM KHO - DD-MM-YYYY`. Nếu có nhiều phiên cùng
 ngày, các tab tiếp theo nhận hậu tố `(2)`, `(3)`. Xuất lại cùng một phiên sẽ cập

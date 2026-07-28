@@ -38,17 +38,20 @@ export const googleSheetTabName = (startedAt: string) => {
 export async function sendSessionToGoogleSheet({
   sheetUrl,
   scriptUrl,
+  sharedSecret,
   session,
   products,
 }: {
   sheetUrl: string;
   scriptUrl: string;
+  sharedSecret: string;
   session: GoogleSheetSession;
   products: GoogleSheetProduct[];
 }) {
   const spreadsheetId = extractSpreadsheetId(sheetUrl);
   if (!spreadsheetId) throw new Error("Link Google Sheet không hợp lệ.");
   if (!isGoogleAppsScriptUrl(scriptUrl)) throw new Error("Link Apps Script Web App không hợp lệ.");
+  if (sharedSecret.trim().length < 24) throw new Error("Shared secret phải có ít nhất 24 ký tự.");
 
   const productById = new Map(products.map((product) => [product.id, product]));
   const rows = session.lines.map((line, index) => {
@@ -69,6 +72,7 @@ export async function sendSessionToGoogleSheet({
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({
       spreadsheetId,
+      sharedSecret: sharedSecret.trim(),
       sessionId: session.id,
       sheetName: googleSheetTabName(session.startedAt),
       startedAt: session.startedAt,
