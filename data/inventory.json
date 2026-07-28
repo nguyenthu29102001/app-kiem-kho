@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-28T09:53:27.621Z",
+  "updatedAt": "2026-07-28T09:53:31.587Z",
   "products": [
     {
       "id": "1785232343596-y4zav4",
@@ -12,14 +12,15 @@
   "session": {
     "id": "1785231779290-pubq3p",
     "startedAt": "2026-07-28T09:42:59.290Z",
-    "updatedAt": "2026-07-28T09:53:26.418Z",
-    "status": "active",
+    "updatedAt": "2026-07-28T09:53:30.382Z",
+    "status": "completed",
     "lines": [
       {
         "productId": "1785232343596-y4zav4",
         "quantity": 2,
         "updatedAt": "2026-07-28T09:53:26.418Z"
       }
-    ]
+    ],
+    "completedAt": "2026-07-28T09:53:30.382Z"
   }
 }
