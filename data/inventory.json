@@ -1,6 +1,12 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-28T00:00:00.000Z",
+  "updatedAt": "2026-07-28T09:51:55.391Z",
   "products": [],
-  "session": null
+  "session": {
+    "id": "1785231779290-pubq3p",
+    "startedAt": "2026-07-28T09:42:59.290Z",
+    "updatedAt": "2026-07-28T09:42:59.290Z",
+    "status": "active",
+    "lines": []
+  }
 }
