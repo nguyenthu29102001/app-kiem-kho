@@ -1,0 +1,20 @@
+[
+  {
+    "id": "sp-ca-phe-den",
+    "barcode": "8938505974011",
+    "name": "Cà phê đen",
+    "unit": "Gói"
+  },
+  {
+    "id": "sp-sua-tuoi",
+    "barcode": "8934673601001",
+    "name": "Sữa tươi không đường",
+    "unit": "Hộp"
+  },
+  {
+    "id": "sp-matcha",
+    "barcode": "8936136160018",
+    "name": "Bột matcha",
+    "unit": "Túi"
+  }
+]

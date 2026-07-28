@@ -1,0 +1,428 @@
+"use client";
+/* eslint-disable react-hooks/set-state-in-effect */
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
+
+type Product = {
+  id: string;
+  barcode: string;
+  name: string;
+  unit: string;
+};
+
+type StockLine = {
+  productId: string;
+  quantity: number;
+  updatedAt: string;
+};
+
+type Session = {
+  id: string;
+  startedAt: string;
+  lines: StockLine[];
+};
+
+const PRODUCTS_KEY = "kiemkho.products.v1";
+const SESSION_KEY = "kiemkho.session.v1";
+const DEFAULT_PRODUCTS: Product[] = [
+  { id: "sp-ca-phe-den", barcode: "8938505974011", name: "Cà phê đen", unit: "Gói" },
+  { id: "sp-sua-tuoi", barcode: "8934673601001", name: "Sữa tươi không đường", unit: "Hộp" },
+  { id: "sp-matcha", barcode: "8936136160018", name: "Bột matcha", unit: "Túi" },
+];
+
+const nowId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const formatTime = (iso: string) =>
+  new Intl.DateTimeFormat("vi-VN", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(iso));
+
+export default function Home() {
+  const [tab, setTab] = useState<"stock" | "products">("stock");
+  const [products, setProducts] = useState<Product[]>([]);
+  const [session, setSession] = useState<Session | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+  const [scannerFor, setScannerFor] = useState<"stock" | "product" | null>(null);
+  const [notice, setNotice] = useState("");
+  const [confirmNewSession, setConfirmNewSession] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [productForm, setProductForm] = useState({ barcode: "", name: "", unit: "Cái" });
+
+  useEffect(() => {
+    const savedProducts = localStorage.getItem(PRODUCTS_KEY);
+    const savedSession = localStorage.getItem(SESSION_KEY);
+    setProducts(savedProducts ? JSON.parse(savedProducts) : DEFAULT_PRODUCTS);
+    if (savedSession) setSession(JSON.parse(savedSession));
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
+  }, [products, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    else localStorage.removeItem(SESSION_KEY);
+  }, [session, hydrated]);
+
+  const productById = useMemo(
+    () => new Map(products.map((product) => [product.id, product])),
+    [products],
+  );
+
+  const totalQuantity = session?.lines.reduce((sum, line) => sum + line.quantity, 0) ?? 0;
+
+  const flash = (message: string) => {
+    setNotice(message);
+    window.setTimeout(() => setNotice(""), 2600);
+  };
+
+  const startNewSession = () => {
+    setSession({ id: nowId(), startedAt: new Date().toISOString(), lines: [] });
+    setSelectedProductId("");
+    setQuantity("1");
+    setConfirmNewSession(false);
+    flash("Đã tạo phiên kiểm kho mới");
+  };
+
+  const handleScanned = (barcode: string, target: "stock" | "product") => {
+    setScannerFor(null);
+    if (target === "product") {
+      if (products.some((p) => p.barcode === barcode)) {
+        flash("Barcode này đã có trong danh mục");
+        return;
+      }
+      setProductForm((form) => ({ ...form, barcode }));
+      flash(`Đã đọc mã ${barcode}`);
+      return;
+    }
+
+    const product = products.find((p) => p.barcode === barcode);
+    if (!product) {
+      flash("Không tìm thấy sản phẩm. Hãy thêm vào danh mục trước.");
+      return;
+    }
+    setSelectedProductId(product.id);
+    setQuantity("1");
+    flash(`Đã chọn ${product.name}`);
+  };
+
+  const saveProduct = () => {
+    const barcode = productForm.barcode.trim();
+    const name = productForm.name.trim();
+    if (!name) return flash("Vui lòng nhập tên sản phẩm");
+    if (barcode && products.some((p) => p.barcode === barcode)) {
+      return flash("Barcode đã tồn tại, không thể thêm trùng");
+    }
+    setProducts((current) => [
+      ...current,
+      { id: nowId(), barcode, name, unit: productForm.unit.trim() || "Cái" },
+    ]);
+    setProductForm({ barcode: "", name: "", unit: "Cái" });
+    flash("Đã thêm sản phẩm");
+  };
+
+  const addStock = () => {
+    if (!session) return flash("Hãy bắt đầu phiên kiểm kho trước");
+    if (!selectedProductId) return flash("Hãy quét hoặc chọn sản phẩm");
+    const parsedQuantity = Number(quantity);
+    if (!Number.isFinite(parsedQuantity) || parsedQuantity < 0) {
+      return flash("Số lượng không hợp lệ");
+    }
+    setSession((current) => {
+      if (!current) return current;
+      const existing = current.lines.find((line) => line.productId === selectedProductId);
+      const updatedAt = new Date().toISOString();
+      return {
+        ...current,
+        lines: existing
+          ? current.lines.map((line) =>
+              line.productId === selectedProductId
+                ? { ...line, quantity: line.quantity + parsedQuantity, updatedAt }
+                : line,
+            )
+          : [...current.lines, { productId: selectedProductId, quantity: parsedQuantity, updatedAt }],
+      };
+    });
+    flash("Đã cộng vào tồn kho");
+    setQuantity("1");
+  };
+
+  const exportExcel = async () => {
+    if (!session || session.lines.length === 0) return flash("Chưa có dữ liệu để xuất");
+    const XLSX = await import("xlsx");
+    const rows = session.lines.map((line, index) => {
+      const product = productById.get(line.productId);
+      return {
+        STT: index + 1,
+        Barcode: product?.barcode ?? "",
+        "Tên sản phẩm": product?.name ?? "Không xác định",
+        "Đơn vị": product?.unit ?? "",
+        "Số lượng": line.quantity,
+        "Cập nhật lúc": formatTime(line.updatedAt),
+      };
+    });
+    const workbook = XLSX.utils.book_new();
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    sheet["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(workbook, sheet, "Ton kho");
+    XLSX.writeFile(workbook, `kiem-kho-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const exportProducts = () => {
+    const blob = new Blob([JSON.stringify(products, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "products.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importProducts = async (file: File) => {
+    try {
+      const parsed = JSON.parse(await file.text()) as Product[];
+      if (!Array.isArray(parsed) || parsed.some((p) => !p.id || !p.name)) throw new Error();
+      const seen = new Set<string>();
+      const clean = parsed.filter((p) => !p.barcode || (!seen.has(p.barcode) && seen.add(p.barcode)));
+      setProducts(clean);
+      flash(`Đã nhập ${clean.length} sản phẩm`);
+    } catch {
+      flash("File danh mục không hợp lệ");
+    }
+  };
+
+  if (!hydrated) return <main className="loading">Đang mở sổ kiểm kho…</main>;
+
+  return (
+    <main className="app-shell">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">SỔ KHO</p>
+          <h1>Kiểm kho nhanh</h1>
+        </div>
+        <div className={`session-pill ${session ? "active" : ""}`}>
+          <span />
+          {session ? "Đang kiểm kho" : "Chưa có phiên"}
+        </div>
+      </header>
+
+      <nav className="tabs" aria-label="Chức năng">
+        <button className={tab === "stock" ? "selected" : ""} onClick={() => setTab("stock")}>
+          Kiểm kho
+        </button>
+        <button className={tab === "products" ? "selected" : ""} onClick={() => setTab("products")}>
+          Sản phẩm
+        </button>
+      </nav>
+
+      {tab === "stock" ? (
+        <div className="content-grid">
+          <section className="card session-card">
+            <div className="section-heading">
+              <div>
+                <p className="label">PHIÊN HIỆN TẠI</p>
+                <h2>{session ? formatTime(session.startedAt) : "Chưa bắt đầu"}</h2>
+              </div>
+              {session && <span className="count-badge">{session.lines.length} mặt hàng</span>}
+            </div>
+            {!session ? (
+              <div className="empty-state">
+                <div className="empty-icon">✓</div>
+                <h3>Sẵn sàng kiểm kho?</h3>
+                <p>Tạo phiên mới để bắt đầu ghi nhận số lượng thực tế.</p>
+                <button className="primary large" onClick={() => setConfirmNewSession(true)}>
+                  Bắt đầu kiểm kho
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="action-row">
+                  <button className="scan-button" onClick={() => setScannerFor("stock")}>
+                    <span className="scan-corners">⌗</span>
+                    Quét barcode
+                  </button>
+                  <span className="or">hoặc</span>
+                  <label className="field grow">
+                    <span>Chọn sản phẩm</span>
+                    <select value={selectedProductId} onChange={(e) => setSelectedProductId(e.target.value)}>
+                      <option value="">Tìm trong danh mục…</option>
+                      {products.map((product) => (
+                        <option key={product.id} value={product.id}>{product.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="quantity-row">
+                  <label className="field grow">
+                    <span>Số lượng nhập thêm</span>
+                    <input type="number" min="0" step="0.01" inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+                  </label>
+                  <button className="primary" onClick={addStock}>Ghi nhận</button>
+                </div>
+                <button className="text-button danger-text" onClick={() => setConfirmNewSession(true)}>
+                  Bắt đầu phiên mới
+                </button>
+              </>
+            )}
+          </section>
+
+          <section className="card inventory-card">
+            <div className="section-heading">
+              <div>
+                <p className="label">KẾT QUẢ</p>
+                <h2>Danh sách tồn kho</h2>
+              </div>
+              <button className="secondary" onClick={exportExcel}>Xuất Excel</button>
+            </div>
+            <div className="summary">
+              <div><strong>{session?.lines.length ?? 0}</strong><span>Mặt hàng</span></div>
+              <div><strong>{totalQuantity.toLocaleString("vi-VN")}</strong><span>Tổng số lượng</span></div>
+            </div>
+            {!session?.lines.length ? (
+              <p className="table-empty">Sản phẩm đã kiểm sẽ xuất hiện tại đây.</p>
+            ) : (
+              <div className="stock-list">
+                {session.lines.map((line) => {
+                  const product = productById.get(line.productId);
+                  return (
+                    <article key={line.productId}>
+                      <div>
+                        <h3>{product?.name ?? "Sản phẩm đã xoá"}</h3>
+                        <p>{product?.barcode || "Không barcode"} · {product?.unit}</p>
+                      </div>
+                      <label className="inline-quantity">
+                        <input
+                          aria-label={`Số lượng ${product?.name}`}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.quantity}
+                          onChange={(e) => setSession((current) => current ? ({
+                            ...current,
+                            lines: current.lines.map((item) => item.productId === line.productId
+                              ? { ...item, quantity: Number(e.target.value), updatedAt: new Date().toISOString() }
+                              : item),
+                          }) : current)}
+                        />
+                        <span>{product?.unit}</span>
+                      </label>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : (
+        <div className="content-grid">
+          <section className="card">
+            <div className="section-heading">
+              <div><p className="label">DANH MỤC</p><h2>Thêm sản phẩm</h2></div>
+              <button className="secondary" onClick={() => setScannerFor("product")}>Quét mã</button>
+            </div>
+            <div className="form-stack">
+              <label className="field"><span>Barcode (không bắt buộc)</span><input value={productForm.barcode} onChange={(e) => setProductForm({ ...productForm, barcode: e.target.value })} placeholder="Quét hoặc nhập tay" /></label>
+              <label className="field"><span>Tên sản phẩm</span><input value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Ví dụ: Sữa đặc Ngôi Sao" /></label>
+              <label className="field"><span>Đơn vị tính</span><input value={productForm.unit} onChange={(e) => setProductForm({ ...productForm, unit: e.target.value })} placeholder="Cái, hộp, kg…" /></label>
+              <button className="primary large" onClick={saveProduct}>Thêm vào danh mục</button>
+            </div>
+          </section>
+          <section className="card">
+            <div className="section-heading">
+              <div><p className="label">{products.length} SẢN PHẨM</p><h2>Danh mục hiện có</h2></div>
+              <div className="mini-actions">
+                <label className="secondary file-button">Nhập JSON<input type="file" accept=".json,application/json" onChange={(e) => e.target.files?.[0] && importProducts(e.target.files[0])} /></label>
+                <button className="secondary" onClick={exportProducts}>Xuất JSON</button>
+              </div>
+            </div>
+            <div className="product-list">
+              {products.map((product) => (
+                <article key={product.id}>
+                  <div><h3>{product.name}</h3><p>{product.barcode || "Không barcode"} · {product.unit}</p></div>
+                  <button aria-label={`Xoá ${product.name}`} onClick={() => setProducts((items) => items.filter((item) => item.id !== product.id))}>×</button>
+                </article>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {scannerFor && <BarcodeScanner target={scannerFor} onScan={handleScanned} onClose={() => setScannerFor(null)} />}
+
+      {confirmNewSession && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+            <div className="warning-icon">!</div>
+            <h2 id="confirm-title">Bắt đầu phiên kiểm kho mới?</h2>
+            <p>Tất cả dữ liệu kiểm kho trước đó trên trình duyệt này sẽ bị xoá. Danh mục sản phẩm vẫn được giữ nguyên.</p>
+            <div className="modal-actions">
+              <button className="secondary" onClick={() => setConfirmNewSession(false)}>Huỷ</button>
+              <button className="danger" onClick={startNewSession}>Xoá và bắt đầu</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {notice && <div className="toast" role="status">{notice}</div>}
+    </main>
+  );
+}
+
+function BarcodeScanner({
+  target,
+  onScan,
+  onClose,
+}: {
+  target: "stock" | "product";
+  onScan: (barcode: string, target: "stock" | "product") => void;
+  onClose: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const controlsRef = useRef<IScannerControls | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    const reader = new BrowserMultiFormatReader();
+    reader
+      .decodeFromConstraints(
+        { video: { facingMode: { ideal: "environment" } }, audio: false },
+        videoRef.current!,
+        (result) => {
+          if (result && alive) {
+            alive = false;
+            controlsRef.current?.stop();
+            onScan(result.getText(), target);
+          }
+        },
+      )
+      .then((controls) => {
+        controlsRef.current = controls;
+      })
+      .catch(() => setError("Không mở được camera. Hãy cấp quyền camera hoặc nhập mã bằng tay."));
+    return () => {
+      alive = false;
+      controlsRef.current?.stop();
+    };
+  }, [onScan, target]);
+
+  return (
+    <div className="scanner">
+      <div className="scanner-top">
+        <button onClick={onClose}>Đóng</button>
+        <strong>Đưa barcode vào khung</strong>
+        <span />
+      </div>
+      <div className="camera-frame">
+        <video ref={videoRef} muted playsInline />
+        <div className="scan-guide"><span /></div>
+      </div>
+      <p>{error || "Giữ điện thoại ổn định, mã sẽ được nhận tự động."}</p>
+    </div>
+  );
+}
