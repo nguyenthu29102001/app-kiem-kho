@@ -54,6 +54,9 @@ shared secret, giới hạn tối đa 10.000 dòng, khoá ghi đồng thời và
 có thể bị hiểu là công thức. Khi cập nhật `Code.gs`, phải tạo deployment version
 mới trong **Deploy → Manage deployments**.
 
+Ứng dụng gửi dữ liệu bằng form ẩn thay vì `fetch`, tránh lỗi CORS/redirect
+`Load failed` trên Safari và trình duyệt mobile.
+
 Mỗi phiên tạo một tab có tên `KIỂM KHO - DD-MM-YYYY`. Nếu có nhiều phiên cùng
 ngày, các tab tiếp theo nhận hậu tố `(2)`, `(3)`. Xuất lại cùng một phiên sẽ cập
 nhật tab đã tạo thay vì tạo tab mới.

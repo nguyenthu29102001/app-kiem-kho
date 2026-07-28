@@ -11,7 +11,10 @@ function doPost(e) {
       throw new Error("Apps Script chưa được cấu hình Script Properties");
     }
 
-    const payload = JSON.parse(e.postData.contents);
+    const rawPayload = e.parameter && e.parameter.payload
+      ? e.parameter.payload
+      : e.postData.contents;
+    const payload = JSON.parse(rawPayload);
     validatePayload_(payload);
     if (payload.sharedSecret !== configuredSecret) {
       throw new Error("Không được phép: shared secret không hợp lệ");

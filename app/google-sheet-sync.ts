@@ -35,6 +35,39 @@ export const googleSheetTabName = (startedAt: string) => {
   return `KIỂM KHO - ${value("day")}-${value("month")}-${value("year")}`;
 };
 
+const postWithHiddenForm = (url: string, payload: string) =>
+  new Promise<void>((resolve, reject) => {
+    try {
+      const target = `google-sheet-sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const iframe = document.createElement("iframe");
+      iframe.name = target;
+      iframe.hidden = true;
+      iframe.setAttribute("aria-hidden", "true");
+
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = url;
+      form.target = target;
+      form.hidden = true;
+
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "payload";
+      input.value = payload;
+      form.appendChild(input);
+      document.body.append(iframe, form);
+      form.submit();
+
+      window.setTimeout(() => {
+        form.remove();
+        iframe.remove();
+      }, 10000);
+      resolve();
+    } catch (error) {
+      reject(error);
+    }
+  });
+
 export async function sendSessionToGoogleSheet({
   sheetUrl,
   scriptUrl,
@@ -66,11 +99,9 @@ export async function sendSessionToGoogleSheet({
     ];
   });
 
-  await fetch(scriptUrl.trim(), {
-    method: "POST",
-    mode: "no-cors",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({
+  await postWithHiddenForm(
+    scriptUrl.trim(),
+    JSON.stringify({
       spreadsheetId,
       sharedSecret: sharedSecret.trim(),
       sessionId: session.id,
@@ -79,5 +110,5 @@ export async function sendSessionToGoogleSheet({
       completedAt: session.completedAt ?? "",
       rows,
     }),
-  });
+  );
 }
