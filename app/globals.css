@@ -72,6 +72,11 @@ p { color: var(--muted); }
 .field { display: flex; flex-direction: column; gap: 7px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .field input, .field select { width: 100%; height: 44px; border: 1px solid var(--line); border-radius: 10px; outline: 0; background: #fbfcfb; color: var(--ink); padding: 0 12px; }
 .field input:focus, .field select:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(31,112,74,.1); background: white; }
+.input-with-clear { position: relative; display: block; width: 100%; }
+.input-with-clear input { width: 100%; padding-right: 40px; }
+.input-with-clear > button { position: absolute; top: 50%; right: 5px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; transform: translateY(-50%); border: 0; border-radius: 8px; color: #7d8780; background: transparent; font-size: 20px; line-height: 1; }
+.input-with-clear > button:hover { color: var(--danger); background: #fcebea; }
+.input-with-clear > button:active { transform: translateY(-50%) scale(.92); }
 .quantity-row { display: flex; align-items: end; gap: 10px; margin-top: 15px; }
 .text-button { border: 0; background: transparent; padding: 12px 0 0; font-size: 12px; font-weight: 700; }
 .danger-text { color: var(--danger); }
@@ -89,6 +94,8 @@ p { color: var(--muted); }
 .stock-list p, .product-list p { margin: 5px 0 0; font-size: 12px; }
 .inline-quantity { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
 .inline-quantity input { width: 82px; height: 38px; border: 1px solid var(--line); border-radius: 9px; padding: 0 9px; text-align: right; font-weight: 800; }
+.inline-quantity .inline-clear { width: 108px; }
+.inline-quantity .inline-clear input { width: 100%; padding-right: 36px; }
 .inline-quantity input:disabled { color: var(--ink); background: #f3f5f2; opacity: 1; }
 .form-stack { display: flex; flex-direction: column; gap: 14px; }
 .sync-panel { display: flex; flex-direction: column; gap: 14px; margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }

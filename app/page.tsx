@@ -75,6 +75,7 @@ export default function Home() {
   const [exportedSessionId, setExportedSessionId] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
+  const noticeTimerRef = useRef<number | null>(null);
   const [githubToken, setGithubToken] = useState("");
   const [githubTokenDraft, setGithubTokenDraft] = useState("");
   const [syncReady, setSyncReady] = useState(false);
@@ -175,9 +176,13 @@ export default function Home() {
 
   const totalQuantity = session?.lines.reduce((sum, line) => sum + line.quantity, 0) ?? 0;
 
-  const flash = (message: string) => {
+  const flash = (message: string, duration = 2600) => {
+    if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
     setNotice(message);
-    window.setTimeout(() => setNotice(""), 2600);
+    noticeTimerRef.current = window.setTimeout(() => {
+      setNotice("");
+      noticeTimerRef.current = null;
+    }, duration);
   };
 
   const startNewSession = () => {
@@ -254,7 +259,7 @@ export default function Home() {
         lines: setInventoryQuantity(current.lines, selectedProductId, parsedQuantity, updatedAt),
       };
     });
-    flash("Đã ghi số lượng hiện tại");
+    flash("Đã ghi số lượng hiện tại", 1700);
     setQuantity("");
   };
 
@@ -413,7 +418,10 @@ export default function Home() {
                 <div className="quantity-row">
                   <label className="field grow">
                     <span>Số lượng hiện tại</span>
-                    <input type="number" min="0" step="any" inputMode="decimal" placeholder="Ví dụ: 12,5" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+                    <span className="input-with-clear">
+                      <input type="number" min="0" step="any" inputMode="decimal" placeholder="12.5" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+                      {quantity && <button type="button" aria-label="Xoá số lượng" onClick={() => setQuantity("")}>×</button>}
+                    </span>
                   </label>
                   <button className="primary" onClick={addStock}>Ghi nhận</button>
                 </div>
@@ -454,21 +462,31 @@ export default function Home() {
                         <p>{product?.barcode || "Không barcode"} · {product?.unit}</p>
                       </div>
                       <label className="inline-quantity">
-                        <input
-                          aria-label={`Số lượng ${product?.name}`}
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={line.quantity}
-                          disabled={session.status === "completed"}
-                          onChange={(e) => setSession((current) => current ? ({
-                            ...current,
-                            updatedAt: new Date().toISOString(),
-                            lines: current.lines.map((item) => item.productId === line.productId
-                              ? { ...item, quantity: parseInventoryQuantity(e.target.value), updatedAt: new Date().toISOString() }
-                              : item),
-                          }) : current)}
-                        />
+                        <span className="input-with-clear inline-clear">
+                          <input
+                            aria-label={`Số lượng ${product?.name}`}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={line.quantity}
+                            disabled={session.status === "completed"}
+                            onChange={(e) => setSession((current) => current ? ({
+                              ...current,
+                              updatedAt: new Date().toISOString(),
+                              lines: current.lines.map((item) => item.productId === line.productId
+                                ? { ...item, quantity: parseInventoryQuantity(e.target.value), updatedAt: new Date().toISOString() }
+                                : item),
+                            }) : current)}
+                          />
+                          {session.status === "active" && <button type="button" aria-label={`Xoá số lượng ${product?.name}`} onClick={() => {
+                            const updatedAt = new Date().toISOString();
+                            setSession((current) => current ? ({
+                              ...current,
+                              updatedAt,
+                              lines: setInventoryQuantity(current.lines, line.productId, 0, updatedAt),
+                            }) : current);
+                          }}>×</button>}
+                        </span>
                         <span>{product?.unit}</span>
                       </label>
                     </article>
@@ -486,9 +504,9 @@ export default function Home() {
               <button className="secondary" onClick={() => setScannerFor("product")}>Quét mã</button>
             </div>
             <div className="form-stack">
-              <label className="field"><span>Barcode (không bắt buộc)</span><input value={productForm.barcode} onChange={(e) => setProductForm({ ...productForm, barcode: e.target.value })} placeholder="Quét hoặc nhập tay" /></label>
-              <label className="field"><span>Tên sản phẩm</span><input id="product-name" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Ví dụ: Sữa đặc Ngôi Sao" /></label>
-              <label className="field"><span>Đơn vị tính</span><input value={productForm.unit} onChange={(e) => setProductForm({ ...productForm, unit: e.target.value })} placeholder="Cái, hộp, kg…" /></label>
+              <label className="field"><span>Barcode (không bắt buộc)</span><span className="input-with-clear"><input value={productForm.barcode} onChange={(e) => setProductForm({ ...productForm, barcode: e.target.value })} placeholder="Quét hoặc nhập tay" />{productForm.barcode && <button type="button" aria-label="Xoá barcode" onClick={() => setProductForm({ ...productForm, barcode: "" })}>×</button>}</span></label>
+              <label className="field"><span>Tên sản phẩm</span><span className="input-with-clear"><input id="product-name" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Ví dụ: Sữa đặc Ngôi Sao" />{productForm.name && <button type="button" aria-label="Xoá tên sản phẩm" onClick={() => setProductForm({ ...productForm, name: "" })}>×</button>}</span></label>
+              <label className="field"><span>Đơn vị tính</span><span className="input-with-clear"><input value={productForm.unit} onChange={(e) => setProductForm({ ...productForm, unit: e.target.value })} placeholder="Cái, hộp, kg…" />{productForm.unit && <button type="button" aria-label="Xoá đơn vị tính" onClick={() => setProductForm({ ...productForm, unit: "" })}>×</button>}</span></label>
               <button className="primary large" onClick={saveProduct}>Thêm vào danh mục</button>
             </div>
             <div className="sync-panel">
@@ -504,13 +522,16 @@ export default function Home() {
               </div>
               <label className="field">
                 <span>GitHub token (Contents: Read and write)</span>
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={githubTokenDraft}
-                  onChange={(e) => setGithubTokenDraft(e.target.value)}
-                  placeholder="github_pat_…"
-                />
+                <span className="input-with-clear">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={githubTokenDraft}
+                    onChange={(e) => setGithubTokenDraft(e.target.value)}
+                    placeholder="github_pat_…"
+                  />
+                  {githubTokenDraft && <button type="button" aria-label="Xoá nội dung token" onClick={() => setGithubTokenDraft("")}>×</button>}
+                </span>
               </label>
               <div className="mini-actions">
                 <button className="secondary" onClick={() => saveGithubToken(githubTokenDraft)}>Lưu token</button>
