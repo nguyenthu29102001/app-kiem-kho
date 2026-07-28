@@ -3,6 +3,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
+import {
+  DEFAULT_GITHUB_SYNC,
+  readGithubFile,
+  writeGithubFile,
+} from "./github-sync";
+import { parseInventoryQuantity, setInventoryQuantity } from "./inventory";
 
 type Product = {
   id: string;
@@ -20,11 +26,22 @@ type StockLine = {
 type Session = {
   id: string;
   startedAt: string;
+  updatedAt: string;
+  status: "active" | "completed";
+  completedAt?: string;
   lines: StockLine[];
+};
+
+type InventoryFile = {
+  version: 1;
+  updatedAt: string;
+  products: Product[];
+  session: Session | null;
 };
 
 const PRODUCTS_KEY = "kiemkho.products.v1";
 const SESSION_KEY = "kiemkho.session.v1";
+const GITHUB_TOKEN_KEY = "kiemkho.github-token.v1";
 const DEFAULT_PRODUCTS: Product[] = [
   { id: "sp-ca-phe-den", barcode: "8938505974011", name: "Cà phê đen", unit: "Gói" },
   { id: "sp-sua-tuoi", barcode: "8934673601001", name: "Sữa tươi không đường", unit: "Hộp" },
@@ -37,7 +54,6 @@ const formatTime = (iso: string) =>
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(iso));
-
 export default function Home() {
   const [tab, setTab] = useState<"stock" | "products">("stock");
   const [products, setProducts] = useState<Product[]>([]);
@@ -46,16 +62,57 @@ export default function Home() {
   const [scannerFor, setScannerFor] = useState<"stock" | "product" | null>(null);
   const [notice, setNotice] = useState("");
   const [confirmNewSession, setConfirmNewSession] = useState(false);
+  const [githubToken, setGithubToken] = useState("");
+  const [githubTokenDraft, setGithubTokenDraft] = useState("");
+  const [syncReady, setSyncReady] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<"loading" | "saved" | "saving" | "error" | "local">("loading");
+  const remoteShaRef = useRef("");
   const [selectedProductId, setSelectedProductId] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [productForm, setProductForm] = useState({ barcode: "", name: "", unit: "Cái" });
 
   useEffect(() => {
+    let cancelled = false;
     const savedProducts = localStorage.getItem(PRODUCTS_KEY);
     const savedSession = localStorage.getItem(SESSION_KEY);
-    setProducts(savedProducts ? JSON.parse(savedProducts) : DEFAULT_PRODUCTS);
-    if (savedSession) setSession(JSON.parse(savedSession));
-    setHydrated(true);
+    const localProducts = savedProducts ? JSON.parse(savedProducts) as Product[] : DEFAULT_PRODUCTS;
+    const rawLocalSession = savedSession ? JSON.parse(savedSession) as Session : null;
+    const localSession = rawLocalSession
+      ? {
+          ...rawLocalSession,
+          updatedAt: rawLocalSession.updatedAt ?? rawLocalSession.startedAt,
+          status: rawLocalSession.status ?? "active" as const,
+        }
+      : null;
+    const token = localStorage.getItem(GITHUB_TOKEN_KEY) ?? "";
+    setGithubToken(token);
+    setGithubTokenDraft(token);
+
+    readGithubFile<InventoryFile>(DEFAULT_GITHUB_SYNC, token)
+      .then((remote) => {
+        if (cancelled) return;
+        const remoteSession = remote?.data.session;
+        const useRemoteSession = remoteSession &&
+          (!localSession || new Date(remoteSession.updatedAt).getTime() > new Date(localSession.updatedAt).getTime());
+        setProducts(remote?.data.products?.length ? remote.data.products : localProducts);
+        setSession(useRemoteSession ? remoteSession : localSession);
+        remoteShaRef.current = remote?.sha ?? "";
+        setSyncStatus(remote ? "saved" : token ? "local" : "local");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setProducts(localProducts);
+        setSession(localSession);
+        setSyncStatus("error");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setHydrated(true);
+        setSyncReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -68,6 +125,27 @@ export default function Home() {
     if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     else localStorage.removeItem(SESSION_KEY);
   }, [session, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated || !syncReady || !githubToken) return;
+    setSyncStatus("saving");
+    const timer = window.setTimeout(async () => {
+      const payload: InventoryFile = {
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        products,
+        session,
+      };
+      try {
+        const sha = await writeGithubFile(DEFAULT_GITHUB_SYNC, githubToken, payload, remoteShaRef.current || undefined);
+        remoteShaRef.current = sha;
+        setSyncStatus("saved");
+      } catch {
+        setSyncStatus("error");
+      }
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [products, session, githubToken, hydrated, syncReady]);
 
   const productById = useMemo(
     () => new Map(products.map((product) => [product.id, product])),
@@ -82,11 +160,21 @@ export default function Home() {
   };
 
   const startNewSession = () => {
-    setSession({ id: nowId(), startedAt: new Date().toISOString(), lines: [] });
+    const now = new Date().toISOString();
+    setSession({ id: nowId(), startedAt: now, updatedAt: now, status: "active", lines: [] });
     setSelectedProductId("");
-    setQuantity("1");
+    setQuantity("");
     setConfirmNewSession(false);
     flash("Đã tạo phiên kiểm kho mới");
+  };
+
+  const completeSession = () => {
+    if (!session || session.status === "completed") return;
+    const now = new Date().toISOString();
+    setSession({ ...session, status: "completed", completedAt: now, updatedAt: now });
+    setSelectedProductId("");
+    setQuantity("");
+    flash("Đã hoàn tất phiên kiểm kho");
   };
 
   const handleScanned = (barcode: string, target: "stock" | "product") => {
@@ -107,7 +195,7 @@ export default function Home() {
       return;
     }
     setSelectedProductId(product.id);
-    setQuantity("1");
+    setQuantity("");
     flash(`Đã chọn ${product.name}`);
   };
 
@@ -129,27 +217,30 @@ export default function Home() {
   const addStock = () => {
     if (!session) return flash("Hãy bắt đầu phiên kiểm kho trước");
     if (!selectedProductId) return flash("Hãy quét hoặc chọn sản phẩm");
-    const parsedQuantity = Number(quantity);
+    const parsedQuantity = parseInventoryQuantity(quantity);
     if (!Number.isFinite(parsedQuantity) || parsedQuantity < 0) {
       return flash("Số lượng không hợp lệ");
     }
     setSession((current) => {
-      if (!current) return current;
-      const existing = current.lines.find((line) => line.productId === selectedProductId);
+      if (!current || current.status !== "active") return current;
       const updatedAt = new Date().toISOString();
       return {
         ...current,
-        lines: existing
-          ? current.lines.map((line) =>
-              line.productId === selectedProductId
-                ? { ...line, quantity: line.quantity + parsedQuantity, updatedAt }
-                : line,
-            )
-          : [...current.lines, { productId: selectedProductId, quantity: parsedQuantity, updatedAt }],
+        updatedAt,
+        lines: setInventoryQuantity(current.lines, selectedProductId, parsedQuantity, updatedAt),
       };
     });
-    flash("Đã cộng vào tồn kho");
-    setQuantity("1");
+    flash("Đã ghi số lượng hiện tại");
+    setQuantity("");
+  };
+
+  const saveGithubToken = (token: string) => {
+    const clean = token.trim();
+    setGithubToken(clean);
+    remoteShaRef.current = "";
+    if (clean) localStorage.setItem(GITHUB_TOKEN_KEY, clean);
+    else localStorage.removeItem(GITHUB_TOKEN_KEY);
+    setSyncStatus(clean ? "saving" : "local");
   };
 
   const exportExcel = async () => {
@@ -205,9 +296,9 @@ export default function Home() {
           <p className="eyebrow">SỔ KHO</p>
           <h1>Kiểm kho nhanh</h1>
         </div>
-        <div className={`session-pill ${session ? "active" : ""}`}>
+        <div className={`session-pill ${session?.status === "active" ? "active" : ""}`}>
           <span />
-          {session ? "Đang kiểm kho" : "Chưa có phiên"}
+          {session?.status === "active" ? "Đang kiểm kho" : session ? "Đã hoàn tất" : "Chưa có phiên"}
         </div>
       </header>
 
@@ -230,13 +321,13 @@ export default function Home() {
               </div>
               {session && <span className="count-badge">{session.lines.length} mặt hàng</span>}
             </div>
-            {!session ? (
+            {!session || session.status === "completed" ? (
               <div className="empty-state">
                 <div className="empty-icon">✓</div>
-                <h3>Sẵn sàng kiểm kho?</h3>
-                <p>Tạo phiên mới để bắt đầu ghi nhận số lượng thực tế.</p>
+                <h3>{session ? "Phiên đã hoàn tất" : "Sẵn sàng kiểm kho?"}</h3>
+                <p>{session ? "Kết quả vẫn được giữ và đồng bộ. Bạn có thể tạo phiên tiếp theo." : "Tạo phiên mới để bắt đầu ghi nhận số lượng thực tế."}</p>
                 <button className="primary large" onClick={() => setConfirmNewSession(true)}>
-                  Bắt đầu kiểm kho
+                  {session ? "Tạo phiên mới" : "Bắt đầu kiểm kho"}
                 </button>
               </div>
             ) : (
@@ -259,14 +350,17 @@ export default function Home() {
                 </div>
                 <div className="quantity-row">
                   <label className="field grow">
-                    <span>Số lượng nhập thêm</span>
-                    <input type="number" min="0" step="0.01" inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+                    <span>Số lượng hiện tại</span>
+                    <input type="number" min="0" step="any" inputMode="decimal" placeholder="Ví dụ: 12,5" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
                   </label>
                   <button className="primary" onClick={addStock}>Ghi nhận</button>
                 </div>
-                <button className="text-button danger-text" onClick={() => setConfirmNewSession(true)}>
-                  Bắt đầu phiên mới
-                </button>
+                <div className="session-actions">
+                  <button className="secondary" onClick={completeSession}>Hoàn tất phiên</button>
+                  <button className="text-button danger-text" onClick={() => setConfirmNewSession(true)}>
+                    Tạo phiên mới
+                  </button>
+                </div>
               </>
             )}
           </section>
@@ -302,10 +396,12 @@ export default function Home() {
                           min="0"
                           step="0.01"
                           value={line.quantity}
+                          disabled={session.status === "completed"}
                           onChange={(e) => setSession((current) => current ? ({
                             ...current,
+                            updatedAt: new Date().toISOString(),
                             lines: current.lines.map((item) => item.productId === line.productId
-                              ? { ...item, quantity: Number(e.target.value), updatedAt: new Date().toISOString() }
+                              ? { ...item, quantity: parseInventoryQuantity(e.target.value), updatedAt: new Date().toISOString() }
                               : item),
                           }) : current)}
                         />
@@ -330,6 +426,34 @@ export default function Home() {
               <label className="field"><span>Tên sản phẩm</span><input value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Ví dụ: Sữa đặc Ngôi Sao" /></label>
               <label className="field"><span>Đơn vị tính</span><input value={productForm.unit} onChange={(e) => setProductForm({ ...productForm, unit: e.target.value })} placeholder="Cái, hộp, kg…" /></label>
               <button className="primary large" onClick={saveProduct}>Thêm vào danh mục</button>
+            </div>
+            <div className="sync-panel">
+              <div>
+                <p className="label">ĐỒNG BỘ GITHUB</p>
+                <h3>{
+                  syncStatus === "saved" ? "Đã đồng bộ" :
+                  syncStatus === "saving" || syncStatus === "loading" ? "Đang đồng bộ…" :
+                  syncStatus === "error" ? "Đồng bộ lỗi" : "Chỉ lưu trên thiết bị"
+                }</h3>
+                <p>Dữ liệu được lưu tại <code>{DEFAULT_GITHUB_SYNC.path}</code>. Thiết bị mới tự tải file; token chỉ cần khi ghi dữ liệu.</p>
+              </div>
+              <label className="field">
+                <span>GitHub token (Contents: Read and write)</span>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={githubTokenDraft}
+                  onChange={(e) => setGithubTokenDraft(e.target.value)}
+                  placeholder="github_pat_…"
+                />
+              </label>
+              <div className="mini-actions">
+                <button className="secondary" onClick={() => saveGithubToken(githubTokenDraft)}>Lưu token</button>
+                {githubToken && <button className="text-button danger-text" onClick={() => {
+                  setGithubTokenDraft("");
+                  saveGithubToken("");
+                }}>Xoá token</button>}
+              </div>
             </div>
           </section>
           <section className="card">
@@ -358,11 +482,11 @@ export default function Home() {
         <div className="modal-backdrop" role="presentation">
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
             <div className="warning-icon">!</div>
-            <h2 id="confirm-title">Bắt đầu phiên kiểm kho mới?</h2>
-            <p>Tất cả dữ liệu kiểm kho trước đó trên trình duyệt này sẽ bị xoá. Danh mục sản phẩm vẫn được giữ nguyên.</p>
+            <h2 id="confirm-title">Tạo phiên kiểm kho mới?</h2>
+            <p>Kết quả phiên hiện tại sẽ được thay bằng phiên mới trong file đồng bộ. Hãy xuất Excel trước nếu bạn cần lưu riêng kết quả cũ.</p>
             <div className="modal-actions">
               <button className="secondary" onClick={() => setConfirmNewSession(false)}>Huỷ</button>
-              <button className="danger" onClick={startNewSession}>Xoá và bắt đầu</button>
+              <button className="danger" onClick={startNewSession}>Tạo phiên mới</button>
             </div>
           </div>
         </div>

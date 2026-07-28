@@ -69,6 +69,8 @@ p { color: var(--muted); }
 .quantity-row { display: flex; align-items: end; gap: 10px; margin-top: 15px; }
 .text-button { border: 0; background: transparent; padding: 12px 0 0; font-size: 12px; font-weight: 700; }
 .danger-text { color: var(--danger); }
+.session-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.session-actions .text-button { padding-top: 0; }
 
 .summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
 .summary div { padding: 14px 16px; border-radius: 12px; background: #f6f8f6; }
@@ -81,7 +83,12 @@ p { color: var(--muted); }
 .stock-list p, .product-list p { margin: 5px 0 0; font-size: 12px; }
 .inline-quantity { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
 .inline-quantity input { width: 82px; height: 38px; border: 1px solid var(--line); border-radius: 9px; padding: 0 9px; text-align: right; font-weight: 800; }
+.inline-quantity input:disabled { color: var(--ink); background: #f3f5f2; opacity: 1; }
 .form-stack { display: flex; flex-direction: column; gap: 14px; }
+.sync-panel { display: flex; flex-direction: column; gap: 14px; margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
+.sync-panel h3 { margin-top: 2px; }
+.sync-panel p { margin: 7px 0 0; font-size: 12px; line-height: 1.55; }
+.sync-panel code { color: var(--green-dark); }
 .mini-actions { display: flex; gap: 7px; }
 .file-button { display: inline-flex; align-items: center; cursor: pointer; }
 .file-button input { display: none; }
