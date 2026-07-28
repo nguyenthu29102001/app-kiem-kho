@@ -27,6 +27,28 @@ Danh mục mẫu nằm tại `public/products.json`. Trong app, danh mục đư�
 `localStorage`. Khi cập nhật danh mục, chọn **Xuất JSON** rồi thay file
 `public/products.json` trong repo nếu muốn lưu phiên bản mới cùng mã nguồn.
 
+## Xuất sang Google Sheet
+
+Khi xuất Excel, ứng dụng có thể đồng thời gửi phiên kiểm kho sang Google Sheet.
+Link Sheet và link Apps Script chỉ được lưu trong `localStorage` của thiết bị,
+không được ghi vào GitHub.
+
+Thiết lập Apps Script:
+
+1. Mở [Google Apps Script](https://script.google.com/) và tạo project mới.
+2. Sao chép nội dung `google-apps-script/Code.gs` vào file `Code.gs`.
+3. Chọn **Deploy → New deployment → Web app**.
+4. Chọn **Execute as: Me** và **Who has access: Anyone** để trình duyệt có thể
+   gửi dữ liệu mà không cần đăng nhập Google trong ứng dụng. Chỉ chia sẻ URL
+   Web App với các thiết bị kiểm kho.
+5. Deploy, cấp quyền truy cập Google Sheet, rồi sao chép URL kết thúc bằng `/exec`.
+6. Trong tab **Sản phẩm** của ứng dụng, nhập link file Google Sheet và URL Web App,
+   sau đó bấm **Lưu cấu hình**.
+
+Mỗi phiên tạo một tab có tên `KIỂM KHO - DD-MM-YYYY`. Nếu có nhiều phiên cùng
+ngày, các tab tiếp theo nhận hậu tố `(2)`, `(3)`. Xuất lại cùng một phiên sẽ cập
+nhật tab đã tạo thay vì tạo tab mới.
+
 ## Chạy local
 
 ```bash

@@ -13,6 +13,11 @@ import {
   setInventoryQuantity,
   shouldExportBeforeCompleting,
 } from "./inventory";
+import {
+  extractSpreadsheetId,
+  isGoogleAppsScriptUrl,
+  sendSessionToGoogleSheet,
+} from "./google-sheet-sync";
 
 type Product = {
   id: string;
@@ -47,6 +52,8 @@ const PRODUCTS_KEY = "kiemkho.products.v1";
 const SESSION_KEY = "kiemkho.session.v1";
 const GITHUB_TOKEN_KEY = "kiemkho.github-token.v1";
 const EXPORTED_SESSION_KEY = "kiemkho.exported-session.v1";
+const GOOGLE_SHEET_URL_KEY = "kiemkho.google-sheet-url.v1";
+const GOOGLE_SCRIPT_URL_KEY = "kiemkho.google-script-url.v1";
 const DEFAULT_PRODUCTS: Product[] = [
   { id: "sp-ca-phe-den", barcode: "8938505974011", name: "Cà phê đen", unit: "Gói" },
   { id: "sp-sua-tuoi", barcode: "8934673601001", name: "Sữa tươi không đường", unit: "Hộp" },
@@ -69,6 +76,7 @@ export default function Home() {
   const [confirmNewSession, setConfirmNewSession] = useState(false);
   const [confirmCompleteSession, setConfirmCompleteSession] = useState(false);
   const [confirmClearToken, setConfirmClearToken] = useState(false);
+  const [confirmClearGoogleConfig, setConfirmClearGoogleConfig] = useState(false);
   const [pendingDeleteProduct, setPendingDeleteProduct] = useState<Product | null>(null);
   const [pendingImportProducts, setPendingImportProducts] = useState<Product[] | null>(null);
   const [missingBarcode, setMissingBarcode] = useState("");
@@ -76,6 +84,12 @@ export default function Home() {
   const [isExporting, setIsExporting] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   const noticeTimerRef = useRef<number | null>(null);
+  const [googleSheetUrl, setGoogleSheetUrl] = useState("");
+  const [googleScriptUrl, setGoogleScriptUrl] = useState("");
+  const [googleSheetDraft, setGoogleSheetDraft] = useState("");
+  const [googleScriptDraft, setGoogleScriptDraft] = useState("");
+  const [googleSyncStatus, setGoogleSyncStatus] = useState<"local" | "ready" | "sending" | "sent" | "error">("local");
+  const [googleSyncError, setGoogleSyncError] = useState("");
   const [githubToken, setGithubToken] = useState("");
   const [githubTokenDraft, setGithubTokenDraft] = useState("");
   const [syncReady, setSyncReady] = useState(false);
@@ -104,6 +118,13 @@ export default function Home() {
     setGithubToken(token);
     setGithubTokenDraft(token);
     setExportedSessionId(localStorage.getItem(EXPORTED_SESSION_KEY) ?? "");
+    const savedGoogleSheetUrl = localStorage.getItem(GOOGLE_SHEET_URL_KEY) ?? "";
+    const savedGoogleScriptUrl = localStorage.getItem(GOOGLE_SCRIPT_URL_KEY) ?? "";
+    setGoogleSheetUrl(savedGoogleSheetUrl);
+    setGoogleScriptUrl(savedGoogleScriptUrl);
+    setGoogleSheetDraft(savedGoogleSheetUrl);
+    setGoogleScriptDraft(savedGoogleScriptUrl);
+    setGoogleSyncStatus(savedGoogleSheetUrl && savedGoogleScriptUrl ? "ready" : "local");
 
     readGithubFile<InventoryFile>(DEFAULT_GITHUB_SYNC, token)
       .then((remote) => {
@@ -301,7 +322,26 @@ export default function Home() {
       XLSX.writeFile(workbook, `kiem-kho-${new Date().toISOString().slice(0, 10)}.xlsx`);
       setExportedSessionId(session.id);
       localStorage.setItem(EXPORTED_SESSION_KEY, session.id);
-      flash("Đã xuất file Excel");
+      if (googleSheetUrl && googleScriptUrl) {
+        setGoogleSyncStatus("sending");
+        setGoogleSyncError("");
+        try {
+          await sendSessionToGoogleSheet({
+            sheetUrl: googleSheetUrl,
+            scriptUrl: googleScriptUrl,
+            session,
+            products,
+          });
+          setGoogleSyncStatus("sent");
+          flash("Đã xuất Excel và gửi sang Google Sheet");
+        } catch (error) {
+          setGoogleSyncStatus("error");
+          setGoogleSyncError(error instanceof Error ? error.message : "Không thể gửi dữ liệu sang Google Sheet.");
+          flash("Đã xuất Excel nhưng gửi Google Sheet thất bại");
+        }
+      } else {
+        flash("Đã xuất file Excel");
+      }
       return true;
     } catch {
       flash("Không thể xuất Excel. Vui lòng thử lại.");
@@ -352,6 +392,35 @@ export default function Home() {
     setMissingBarcode("");
     setTab("products");
     window.setTimeout(() => document.querySelector<HTMLInputElement>("#product-name")?.focus(), 50);
+  };
+
+  const saveGoogleSheetConfig = () => {
+    const cleanSheetUrl = googleSheetDraft.trim();
+    const cleanScriptUrl = googleScriptDraft.trim();
+    if (!extractSpreadsheetId(cleanSheetUrl)) return flash("Link Google Sheet không hợp lệ");
+    if (!isGoogleAppsScriptUrl(cleanScriptUrl)) return flash("Link Apps Script Web App không hợp lệ");
+    localStorage.setItem(GOOGLE_SHEET_URL_KEY, cleanSheetUrl);
+    localStorage.setItem(GOOGLE_SCRIPT_URL_KEY, cleanScriptUrl);
+    setGoogleSheetUrl(cleanSheetUrl);
+    setGoogleScriptUrl(cleanScriptUrl);
+    setGoogleSheetDraft(cleanSheetUrl);
+    setGoogleScriptDraft(cleanScriptUrl);
+    setGoogleSyncStatus("ready");
+    setGoogleSyncError("");
+    flash("Đã lưu cấu hình Google Sheet trên thiết bị");
+  };
+
+  const clearGoogleSheetConfig = () => {
+    localStorage.removeItem(GOOGLE_SHEET_URL_KEY);
+    localStorage.removeItem(GOOGLE_SCRIPT_URL_KEY);
+    setGoogleSheetUrl("");
+    setGoogleScriptUrl("");
+    setGoogleSheetDraft("");
+    setGoogleScriptDraft("");
+    setGoogleSyncStatus("local");
+    setGoogleSyncError("");
+    setConfirmClearGoogleConfig(false);
+    flash("Đã xoá cấu hình Google Sheet");
   };
 
   if (!hydrated) return <main className="loading">Đang mở sổ kiểm kho…</main>;
@@ -542,6 +611,49 @@ export default function Home() {
                 {githubToken && <button className="text-button danger-text" onClick={() => setConfirmClearToken(true)}>Xoá token</button>}
               </div>
             </div>
+            <div className="sync-panel">
+              <div>
+                <p className="label">GOOGLE SHEET</p>
+                <h3>{
+                  googleSyncStatus === "sending" ? "Đang gửi dữ liệu…" :
+                  googleSyncStatus === "sent" ? "Đã gửi phiên gần nhất" :
+                  googleSyncStatus === "error" ? "Gửi dữ liệu lỗi" :
+                  googleSyncStatus === "ready" ? "Đã sẵn sàng" :
+                  "Chưa cấu hình"
+                }</h3>
+                <p>Mỗi lần xuất Excel sẽ đồng thời cập nhật một tab <code>KIỂM KHO - DD-MM-YYYY</code>. Hai link chỉ được lưu trên thiết bị này.</p>
+                {googleSyncError && <p className="sync-error" role="alert">{googleSyncError}</p>}
+              </div>
+              <label className="field">
+                <span>Link Google Sheet</span>
+                <span className="input-with-clear">
+                  <input
+                    inputMode="url"
+                    value={googleSheetDraft}
+                    onChange={(e) => setGoogleSheetDraft(e.target.value)}
+                    placeholder="https://docs.google.com/spreadsheets/d/…"
+                  />
+                  {googleSheetDraft && <button type="button" aria-label="Xoá link Google Sheet" onClick={() => setGoogleSheetDraft("")}>×</button>}
+                </span>
+              </label>
+              <label className="field">
+                <span>Link Apps Script Web App</span>
+                <span className="input-with-clear">
+                  <input
+                    inputMode="url"
+                    value={googleScriptDraft}
+                    onChange={(e) => setGoogleScriptDraft(e.target.value)}
+                    placeholder="https://script.google.com/macros/s/…/exec"
+                  />
+                  {googleScriptDraft && <button type="button" aria-label="Xoá link Apps Script" onClick={() => setGoogleScriptDraft("")}>×</button>}
+                </span>
+              </label>
+              <div className="mini-actions">
+                <button className="secondary" onClick={saveGoogleSheetConfig}>Lưu cấu hình</button>
+                {googleSheetUrl && googleScriptUrl &&
+                  <button className="text-button danger-text" onClick={() => setConfirmClearGoogleConfig(true)}>Xoá cấu hình</button>}
+              </div>
+            </div>
           </section>
           <section className="card">
             <div className="section-heading">
@@ -661,6 +773,20 @@ export default function Home() {
                 setConfirmClearToken(false);
                 flash("Đã xoá GitHub token");
               }}>Xác nhận xoá</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmClearGoogleConfig && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="clear-google-title">
+            <div className="warning-icon">!</div>
+            <h2 id="clear-google-title">Xoá cấu hình Google Sheet?</h2>
+            <p>Thiết bị này sẽ ngừng gửi dữ liệu sang Google Sheet khi xuất Excel. Cấu hình trên các thiết bị khác không bị ảnh hưởng.</p>
+            <div className="modal-actions">
+              <button className="secondary" onClick={() => setConfirmClearGoogleConfig(false)}>Huỷ</button>
+              <button className="danger" onClick={clearGoogleSheetConfig}>Xác nhận xoá</button>
             </div>
           </div>
         </div>
